@@ -234,7 +234,7 @@ impl OtlpExporterPipeline {
     ///
     /// This exporter can be used in both `tracing` and `metrics` pipeline.
     #[cfg(feature = "grpc-tonic")]
-    pub fn tonic(self) -> TonicExporterBuilder {
+    pub fn tonic<T>(self) -> TonicExporterBuilder<T> {
         TonicExporterBuilder::default()
     }
 

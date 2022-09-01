@@ -26,13 +26,19 @@ pub struct TonicConfig {
 /// [tonic]: <https://github.com/hyperium/tonic>
 /// [channel]: tonic::transport::Channel
 #[derive(Default, Debug)]
-pub struct TonicExporterBuilder {
+pub struct TonicExporterBuilder<T> {
     pub(crate) exporter_config: ExportConfig,
     pub(crate) tonic_config: TonicConfig,
-    pub(crate) channel: Option<tonic::transport::Channel>,
+    pub(crate) channel: Option<T>,
 }
 
-impl TonicExporterBuilder {
+impl<T> TonicExporterBuilder<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+{
     /// Set the TLS settings for the collector endpoint.
     #[cfg(feature = "tls")]
     pub fn with_tls_config(mut self, tls_config: ClientTlsConfig) -> Self {
