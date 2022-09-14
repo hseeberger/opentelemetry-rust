@@ -60,7 +60,7 @@ pub trait HasExportConfig {
 }
 
 #[cfg(feature = "grpc-tonic")]
-impl HasExportConfig for TonicExporterBuilder {
+impl<T> HasExportConfig for TonicExporterBuilder<T> {
     fn export_config(&mut self) -> &mut ExportConfig {
         &mut self.exporter_config
     }
