@@ -41,7 +41,8 @@ opentelemetry-http = { version = "0.7", path = "../opentelemetry-http", optional
 protobuf = { version = "2.18", optional = true }
 
 prost = { version = "0.11.0", optional = true }
-tonic = { version = "0.8.0", optional = true }
+tonic = { version = "0.8.1", optional = true }
+hyper = { version = "0.14.20", optional = true }
 tokio = { version = "1.0", features = ["sync", "rt"], optional = true }
 
 reqwest = { version = "0.11", optional = true, default-features = false }
@@ -68,7 +69,7 @@ serialize = ["serde"]
 default = ["grpc-tonic", "trace"]
 
 # grpc using tonic
-grpc-tonic = ["tonic", "prost", "http", "tokio", "opentelemetry-proto/gen-tonic", "opentelemetry-proto/build-client"]
+grpc-tonic = ["tonic", "prost", "http", "tokio", "opentelemetry-proto/gen-tonic", "opentelemetry-proto/build-client", "hyper"]
 tls = ["tonic/tls"]
 tls-roots = ["tls", "tonic/tls-roots"]
 

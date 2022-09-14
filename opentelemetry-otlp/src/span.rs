@@ -6,7 +6,6 @@ use std::fmt::{self, Debug};
 use std::time::Duration;
 
 #[cfg(feature = "grpc-tonic")]
-use std::str::FromStr;
 #[cfg(feature = "grpc-tonic")]
 use {
     crate::exporter::tonic::{TonicConfig, TonicExporterBuilder},
@@ -16,7 +15,6 @@ use {
     },
     tonic::{
         metadata::{KeyAndValueRef, MetadataMap},
-        transport::Channel as TonicChannel,
         Request,
     },
 };
@@ -74,8 +72,11 @@ pub const OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: &str = "OTEL_EXPORTER_OTLP_TRACES_T
 
 impl OtlpPipeline {
     /// Create a OTLP tracing pipeline.
-    pub fn tracing(self) -> OtlpTracePipeline {
-        OtlpTracePipeline::default()
+    pub fn tracing<T>(self) -> OtlpTracePipeline<T> {
+        OtlpTracePipeline {
+            exporter_builder: None,
+            trace_config: None,
+        }
     }
 }
 
@@ -87,12 +88,27 @@ impl OtlpPipeline {
 /// let tracing_pipeline = opentelemetry_otlp::new_pipeline().tracing();
 /// ```
 #[derive(Default, Debug)]
-pub struct OtlpTracePipeline {
-    exporter_builder: Option<SpanExporterBuilder>,
+pub struct OtlpTracePipeline<T> {
+    exporter_builder: Option<SpanExporterBuilder<T>>,
     trace_config: Option<sdk::trace::Config>,
 }
 
-impl OtlpTracePipeline {
+impl<T> OtlpTracePipeline<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Send + 'static,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+    T::Future: Send,
+    // T: tonic::codegen::Service<
+    //         tonic::codegen::http::Request<tonic::body::BoxBody>,
+    //         Response = tonic::codegen::http::Response<hyper::Body>,
+    //         Error = tonic::transport::Error,
+    //         Future = tonic::transport::channel::ResponseFuture,
+    //     > + Clone
+    //     + Send
+    //     + 'static,
+{
     /// Set the trace provider configuration.
     pub fn with_trace_config(mut self, trace_config: sdk::trace::Config) -> Self {
         self.trace_config = Some(trace_config);
@@ -106,7 +122,7 @@ impl OtlpTracePipeline {
     ///
     /// [`install_batch`]: OtlpTracePipeline::install_batch
     /// [`install_simple`]: OtlpTracePipeline::install_simple
-    pub fn with_exporter<B: Into<SpanExporterBuilder>>(mut self, pipeline: B) -> Self {
+    pub fn with_exporter<B: Into<SpanExporterBuilder<T>>>(mut self, pipeline: B) -> Self {
         self.exporter_builder = Some(pipeline.into());
         self
     }
@@ -147,10 +163,17 @@ impl OtlpTracePipeline {
     }
 }
 
-fn build_simple_with_exporter(
-    exporter: SpanExporter,
+fn build_simple_with_exporter<T>(
+    exporter: SpanExporter<T>,
     trace_config: Option<sdk::trace::Config>,
-) -> sdk::trace::Tracer {
+) -> sdk::trace::Tracer
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Send + 'static,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+    T::Future: Send,
+{
     let mut provider_builder = sdk::trace::TracerProvider::builder().with_simple_exporter(exporter);
     if let Some(config) = trace_config {
         provider_builder = provider_builder.with_config(config);
@@ -162,11 +185,18 @@ fn build_simple_with_exporter(
     tracer
 }
 
-fn build_batch_with_exporter<R: TraceRuntime>(
-    exporter: SpanExporter,
+fn build_batch_with_exporter<R: TraceRuntime, T>(
+    exporter: SpanExporter<T>,
     trace_config: Option<sdk::trace::Config>,
     runtime: R,
-) -> sdk::trace::Tracer {
+) -> sdk::trace::Tracer
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Send + 'static,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+    T::Future: Send,
+{
     let mut provider_builder =
         sdk::trace::TracerProvider::builder().with_batch_exporter(exporter, runtime);
     if let Some(config) = trace_config {
@@ -185,10 +215,10 @@ fn build_batch_with_exporter<R: TraceRuntime>(
 // Users can also disable the unused features to make the overhead on object size smaller.
 #[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
-pub enum SpanExporterBuilder {
+pub enum SpanExporterBuilder<T> {
     /// Tonic span exporter builder
     #[cfg(feature = "grpc-tonic")]
-    Tonic(TonicExporterBuilder),
+    Tonic(TonicExporterBuilder<T>),
     /// Grpc span exporter builder
     #[cfg(feature = "grpc-sys")]
     Grpcio(GrpcioExporterBuilder),
@@ -197,19 +227,25 @@ pub enum SpanExporterBuilder {
     Http(HttpExporterBuilder),
 }
 
-impl SpanExporterBuilder {
+impl<T> SpanExporterBuilder<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+{
     /// Build a OTLP span exporter using the given tonic configuration and exporter configuration.
-    pub fn build_span_exporter(self) -> Result<SpanExporter, TraceError> {
+    pub fn build_span_exporter(self) -> Result<SpanExporter<T>, TraceError> {
         match self {
             #[cfg(feature = "grpc-tonic")]
-            SpanExporterBuilder::Tonic(builder) => Ok(match builder.channel {
-                Some(channel) => SpanExporter::from_tonic_channel(
+            SpanExporterBuilder::Tonic(builder) => {
+                let channel = builder.channel?.0;
+                Ok(SpanExporter::from_tonic_channel(
                     builder.exporter_config,
                     builder.tonic_config,
                     channel,
-                ),
-                None => SpanExporter::new_tonic(builder.exporter_config, builder.tonic_config),
-            }?),
+                ))
+            }
             #[cfg(feature = "grpc-sys")]
             SpanExporterBuilder::Grpcio(builder) => Ok(SpanExporter::new_grpcio(
                 builder.exporter_config,
@@ -225,28 +261,28 @@ impl SpanExporterBuilder {
 }
 
 #[cfg(feature = "grpc-tonic")]
-impl From<TonicExporterBuilder> for SpanExporterBuilder {
-    fn from(exporter: TonicExporterBuilder) -> Self {
+impl<T> From<TonicExporterBuilder<T>> for SpanExporterBuilder<T> {
+    fn from(exporter: TonicExporterBuilder<T>) -> Self {
         SpanExporterBuilder::Tonic(exporter)
     }
 }
 
 #[cfg(feature = "grpc-sys")]
-impl From<GrpcioExporterBuilder> for SpanExporterBuilder {
+impl<T> From<GrpcioExporterBuilder> for SpanExporterBuilder<T> {
     fn from(exporter: GrpcioExporterBuilder) -> Self {
         SpanExporterBuilder::Grpcio(exporter)
     }
 }
 
 #[cfg(feature = "http-proto")]
-impl From<HttpExporterBuilder> for SpanExporterBuilder {
+impl<T> From<HttpExporterBuilder> for SpanExporterBuilder<T> {
     fn from(exporter: HttpExporterBuilder) -> Self {
         SpanExporterBuilder::Http(exporter)
     }
 }
 
 /// OTLP exporter that sends tracing information
-pub enum SpanExporter {
+pub enum SpanExporter<T> {
     #[cfg(feature = "grpc-tonic")]
     /// Trace Exporter using tonic as grpc layer.
     Tonic {
@@ -255,7 +291,7 @@ pub enum SpanExporter {
         /// Additional headers of the outbound requests.
         metadata: Option<MetadataMap>,
         /// The Grpc trace exporter
-        trace_exporter: TonicTraceServiceClient<TonicChannel>,
+        trace_exporter: TonicTraceServiceClient<T>,
     },
     #[cfg(feature = "grpc-sys")]
     /// Trace Exporter using grpcio as grpc layer
@@ -281,7 +317,7 @@ pub enum SpanExporter {
     },
 }
 
-impl Debug for SpanExporter {
+impl<T> Debug for SpanExporter<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(feature = "grpc-tonic")]
@@ -315,58 +351,25 @@ impl Debug for SpanExporter {
     }
 }
 
-impl SpanExporter {
-    /// Builds a new span exporter with the given configuration.
-    #[cfg(feature = "grpc-tonic")]
-    pub fn new_tonic(
-        config: ExportConfig,
-        tonic_config: TonicConfig,
-    ) -> Result<Self, crate::Error> {
-        let endpoint_str = match std::env::var(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-            Ok(val) => val,
-            Err(_) => format!("{}{}", config.endpoint, "/v1/traces"),
-        };
-
-        let endpoint = TonicChannel::from_shared(endpoint_str)?;
-
-        let _timeout = match std::env::var(OTEL_EXPORTER_OTLP_TRACES_TIMEOUT) {
-            Ok(val) => match u64::from_str(&val) {
-                Ok(seconds) => Duration::from_secs(seconds),
-                Err(_) => config.timeout,
-            },
-            Err(_) => config.timeout,
-        };
-
-        #[cfg(feature = "tls")]
-        let channel = match tonic_config.tls_config.as_ref() {
-            Some(tls_config) => endpoint.tls_config(tls_config.clone())?,
-            None => endpoint,
-        }
-        .timeout(_timeout)
-        .connect_lazy();
-
-        #[cfg(not(feature = "tls"))]
-        let channel = endpoint.timeout(_timeout).connect_lazy();
-
-        SpanExporter::from_tonic_channel(config, tonic_config, channel)
-    }
-
+impl<T> SpanExporter<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+{
     /// Builds a new span exporter with given tonic channel.
     ///
     /// This allows users to bring their own custom channel like UDS.
     /// However, users MUST make sure the [`ExportConfig::timeout`] is
     /// the same as the channel's timeout.
     #[cfg(feature = "grpc-tonic")]
-    pub fn from_tonic_channel(
-        config: ExportConfig,
-        tonic_config: TonicConfig,
-        channel: tonic::transport::Channel,
-    ) -> Result<Self, crate::Error> {
-        Ok(SpanExporter::Tonic {
+    pub fn from_tonic_channel(config: ExportConfig, tonic_config: TonicConfig, channel: T) -> Self {
+        SpanExporter::Tonic {
             timeout: config.timeout,
             metadata: tonic_config.metadata,
             trace_exporter: TonicTraceServiceClient::new(channel),
-        })
+        }
     }
 
     /// Builds a new span exporter with the given configuration
@@ -432,16 +435,21 @@ async fn grpcio_send_request(
 }
 
 #[cfg(feature = "tonic")]
-async fn tonic_send_request(
-    trace_exporter: TonicTraceServiceClient<TonicChannel>,
+async fn tonic_send_request<T>(
+    trace_exporter: TonicTraceServiceClient<T>,
     request: Request<TonicRequest>,
-) -> ExportResult {
-    trace_exporter
-        .to_owned()
+) -> ExportResult
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+{
+    let mut exporter = trace_exporter.to_owned();
+    exporter
         .export(request)
         .await
         .map_err::<crate::Error, _>(Into::into)?;
-
     Ok(())
 }
 
@@ -481,7 +489,14 @@ async fn http_send_request(
 }
 
 #[async_trait]
-impl opentelemetry::sdk::export::trace::SpanExporter for SpanExporter {
+impl<T> opentelemetry::sdk::export::trace::SpanExporter for SpanExporter<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Send + 'static,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
+    T::Future: Send,
+{
     fn export(
         &mut self,
         batch: Vec<SpanData>,
@@ -543,7 +558,8 @@ impl opentelemetry::sdk::export::trace::SpanExporter for SpanExporter {
                     }
                 }
 
-                Box::pin(tonic_send_request(trace_exporter.to_owned(), request))
+                let fut = tonic_send_request(trace_exporter.to_owned(), request);
+                Box::pin(fut)
             }
 
             #[cfg(feature = "http-proto")]

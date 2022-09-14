@@ -53,12 +53,12 @@ pub const OTEL_EXPORTER_OTLP_METRICS_TIMEOUT: &str = "OTEL_EXPORTER_OTLP_METRICS
 
 impl OtlpPipeline {
     /// Create a OTLP metrics pipeline.
-    pub fn metrics<AS, TS, RT>(
+    pub fn metrics<AS, TS, RT, T>(
         self,
         aggregator_selector: AS,
         temporality_selector: TS,
         rt: RT,
-    ) -> OtlpMetricPipeline<AS, TS, RT>
+    ) -> OtlpMetricPipeline<AS, TS, RT, T>
     where
         AS: AggregatorSelector,
         TS: TemporalitySelector + Clone,
@@ -78,12 +78,12 @@ impl OtlpPipeline {
 
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum MetricsExporterBuilder {
+pub enum MetricsExporterBuilder<T> {
     #[cfg(feature = "grpc-tonic")]
-    Tonic(TonicExporterBuilder),
+    Tonic(TonicExporterBuilder<T>),
 }
 
-impl MetricsExporterBuilder {
+impl<T> MetricsExporterBuilder<T> {
     /// Build a OTLP metrics exporter with given configuration.
     fn build_metrics_exporter(
         self,
@@ -100,8 +100,8 @@ impl MetricsExporterBuilder {
     }
 }
 
-impl From<TonicExporterBuilder> for MetricsExporterBuilder {
-    fn from(exporter: TonicExporterBuilder) -> Self {
+impl<T> From<TonicExporterBuilder<T>> for MetricsExporterBuilder<T> {
+    fn from(exporter: TonicExporterBuilder<T>) -> Self {
         MetricsExporterBuilder::Tonic(exporter)
     }
 }
@@ -110,17 +110,17 @@ impl From<TonicExporterBuilder> for MetricsExporterBuilder {
 ///
 /// Note that currently the OTLP metrics exporter only supports tonic as it's grpc layer and tokio as
 /// runtime.
-pub struct OtlpMetricPipeline<AS, TS, RT> {
+pub struct OtlpMetricPipeline<AS, TS, RT, T> {
     rt: RT,
     aggregator_selector: AS,
     temporality_selector: TS,
-    exporter_pipeline: Option<MetricsExporterBuilder>,
+    exporter_pipeline: Option<MetricsExporterBuilder<T>>,
     resource: Option<Resource>,
     period: Option<time::Duration>,
     timeout: Option<time::Duration>,
 }
 
-impl<AS, TS, RT> OtlpMetricPipeline<AS, TS, RT>
+impl<AS, TS, RT, T> OtlpMetricPipeline<AS, TS, RT, T>
 where
     AS: AggregatorSelector + Send + Sync + 'static,
     TS: TemporalitySelector + Clone + Send + Sync + 'static,
@@ -135,7 +135,7 @@ where
     }
 
     /// Build with the exporter
-    pub fn with_exporter<B: Into<MetricsExporterBuilder>>(self, pipeline: B) -> Self {
+    pub fn with_exporter<B: Into<MetricsExporterBuilder<T>>>(self, pipeline: B) -> Self {
         OtlpMetricPipeline {
             exporter_pipeline: Some(pipeline.into()),
             ..self
@@ -189,10 +189,10 @@ where
     }
 }
 
-impl<AS, TS, RT> fmt::Debug for OtlpMetricPipeline<AS, TS, RT> {
+impl<AS, TS, RT, T> fmt::Debug for OtlpMetricPipeline<AS, TS, RT, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("OtlpMetricPipeline")
-            .field("exporter_pipeline", &self.exporter_pipeline)
+            // .field("exporter_pipeline", &self.exporter_pipeline)
             .field("resource", &self.resource)
             .field("period", &self.period)
             .field("timeout", &self.timeout)

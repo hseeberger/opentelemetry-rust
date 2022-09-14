@@ -215,7 +215,7 @@ pub use crate::exporter::grpcio::{Compression, Credentials, GrpcioExporterBuilde
 #[cfg(feature = "http-proto")]
 pub use crate::exporter::http::HttpExporterBuilder;
 #[cfg(feature = "grpc-tonic")]
-pub use crate::exporter::tonic::TonicExporterBuilder;
+pub use crate::exporter::tonic::{Channel, TonicExporterBuilder};
 
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
@@ -234,7 +234,7 @@ impl OtlpExporterPipeline {
     ///
     /// This exporter can be used in both `tracing` and `metrics` pipeline.
     #[cfg(feature = "grpc-tonic")]
-    pub fn tonic(self) -> TonicExporterBuilder {
+    pub fn tonic(self) -> TonicExporterBuilder<tonic::transport::Channel> {
         TonicExporterBuilder::default()
     }
 

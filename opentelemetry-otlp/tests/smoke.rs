@@ -76,7 +76,7 @@ async fn smoke_tracer() {
         let mut metadata = tonic::metadata::MetadataMap::new();
         metadata.insert("x-header-key", "header-value".parse().unwrap());
         let tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
+            .tracing::<tonic::transport::Channel>()
             .with_exporter(
                 opentelemetry_otlp::new_exporter()
                     .tonic()
